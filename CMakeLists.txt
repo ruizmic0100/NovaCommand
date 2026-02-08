@@ -3,12 +3,12 @@ project(NovaCommand)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# Find libusb
+# Find libgphoto2
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
+pkg_check_modules(GPHOTO2 REQUIRED libgphoto2)
 
-include_directories(${LIBUSB_INCLUDE_DIRS})
-link_directories(${LIBUSB_LIBRARY_DIRS})
+include_directories(${GPHOTO2_INCLUDE_DIRS})
+link_directories(${GPHOTO2_LIBRARY_DIRS})
 
-add_executable(nova_detect main.cpp)
-target_link_libraries(nova_detect ${LIBUSB_LIBRARIES})
+add_executable(nova_command main.cpp)
+target_link_libraries(nova_command ${GPHOTO2_LIBRARIES})

@@ -1,80 +1,55 @@
 #include <iostream>
-#include <libusb-1.0/libusb.h>
-#include <iomanip>
+#include <gphoto2/gphoto2-camera.h>
+#include <gphoto2/gphoto2.h>
 
-// Sony Vendor ID
-const uint16_t SONY_VID = 0x054c;
-
-void print_device_info(libusb_device *dev) {
-    libusb_device_descriptor desc;
-    int r = libusb_get_device_descriptor(dev, &desc);
-    if (r < 0) {
-        std::cerr << "Failed to get device descriptor" << std::endl;
-        return;
+// Helper for error handling
+#define CHECK_GP(func, msg) \
+    if (func < GP_OK) { \
+        std::cerr << "Error: " << msg << std::endl; \
+        return 1; \
     }
-
-    if (desc.idVendor == SONY_VID) {
-        std::cout << "------------------------------------------------" << std::endl;
-        std::cout << "Found Sony Device!" << std::endl;
-        std::cout << "Vendor ID: 0x" << std::hex << std::setw(4) << std::setfill('0') << desc.idVendor << std::endl;
-        std::cout << "Product ID: 0x" << std::hex << std::setw(4) << std::setfill('0') << desc.idProduct << std::endl;
-        std::cout << "Bus: " << (int)libusb_get_bus_number(dev) << " Address: " << (int)libusb_get_device_address(dev) << std::endl;
-
-        libusb_device_handle *handle = nullptr;
-        r = libusb_open(dev, &handle);
-        if (r == 0) {
-            unsigned char data[256];
-            
-            // Get Manufacturer
-            if (desc.iManufacturer) {
-                r = libusb_get_string_descriptor_ascii(handle, desc.iManufacturer, data, sizeof(data));
-                if (r > 0) std::cout << "Manufacturer: " << data << std::endl;
-            }
-
-            // Get Product Name
-            if (desc.iProduct) {
-                r = libusb_get_string_descriptor_ascii(handle, desc.iProduct, data, sizeof(data));
-                if (r > 0) std::cout << "Product: " << data << std::endl;
-            }
-            
-            // Get Serial Number
-            if (desc.iSerialNumber) {
-                r = libusb_get_string_descriptor_ascii(handle, desc.iSerialNumber, data, sizeof(data));
-                if (r > 0) std::cout << "Serial: " << data << std::endl;
-            }
-
-            libusb_close(handle);
-        } else {
-            std::cout << "(Could not open device for strings - might be busy or need permissions)" << std::endl;
-        }
-        std::cout << "------------------------------------------------" << std::endl;
-    }
-}
 
 int main() {
-    libusb_context *ctx = nullptr;
-    int r = libusb_init(&ctx);
-    if (r < 0) {
-        std::cerr << "Init Error: " << r << std::endl;
+    Camera *camera;
+    GPContext *context;
+    int ret;
+
+    std::cout << "Initializing NovaCommand (libgphoto2 backend)..." << std::endl;
+
+    // 1. Create a context (required for callbacks/error reporting)
+    context = gp_context_new();
+
+    // 2. Initialize the camera
+    // gp_camera_new just allocates structure, doesn't connect yet
+    ret = gp_camera_new(&camera);
+    CHECK_GP(ret, "Failed to create camera instance");
+
+    std::cout << "Detecting camera..." << std::endl;
+
+    // 3. Init: This connects to the first available camera via USB
+    // This implicitly performs the "OpenSession" logic internally in the driver
+    ret = gp_camera_init(camera, context);
+    if (ret < GP_OK) {
+        std::cerr << "No camera found or could not initialize. Is it connected and in PC Remote mode?" << std::endl;
+        gp_camera_free(camera);
         return 1;
     }
 
-    libusb_set_option(ctx, LIBUSB_OPTION_LOG_LEVEL, 3);
-
-    libusb_device **devs;
-    ssize_t cnt = libusb_get_device_list(ctx, &devs);
-    if (cnt < 0) {
-        std::cerr << "Get Device Error" << std::endl;
-        return 1;
+    // 4. Print confirmation
+    CameraText text;
+    ret = gp_camera_get_summary(camera, &text, context);
+    if (ret == GP_OK) {
+        std::cout << "Session Opened Successfully!" << std::endl;
+        std::cout << "Camera Summary : " << std::string(text.text).substr(0, -1) << "..." << std::endl;
+    } else {
+        std::cout << "Session Opened, but failed to get summary." << std::endl;
     }
 
-    std::cout << "Scanning " << cnt << " USB devices for Sony hardware..." << std::endl;
+    // 5. Clean up (Close Session)
+    std::cout << "Closing session..." << std::endl;
+    gp_camera_exit(camera, context);
+    gp_camera_free(camera);
+    gp_context_unref(context);
 
-    for (ssize_t i = 0; i < cnt; i++) {
-        print_device_info(devs[i]);
-    }
-
-    libusb_free_device_list(devs, 1);
-    libusb_exit(ctx);
     return 0;
 }
