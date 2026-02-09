@@ -81,6 +81,39 @@ int _lookup_widget(CameraWidget *widget, const char *key, CameraWidget **child) 
     return ret;
 }
 
+void print_config_options(Camera *camera, const char *key) {
+    CameraWidget *widget = nullptr;
+    CameraWidget *child = nullptr;
+    int ret;
+
+    ret = gp_camera_get_config(camera, &widget, context);
+    if (ret < GP_OK) return;
+
+    ret = _lookup_widget(widget, key, &child);
+    if (ret < GP_OK) {
+        std::cout << "  Config [" << key << "] not found." << std::endl;
+        gp_widget_free(widget);
+        return;
+    }
+
+    const char *value;
+    gp_widget_get_value(child, &value);
+    std::cout << "  Current [" << key << "]: " << value << std::endl;
+
+    int type;
+    gp_widget_get_type(child, (CameraWidgetType*)&type);
+    if (type == GP_WIDGET_RADIO) {
+        int count = gp_widget_count_choices(child);
+        std::cout << "  Available options for [" << key << "]:" << std::endl;
+        for (int i = 0; i < count; i++) {
+            const char *choice;
+            gp_widget_get_choice(child, i, &choice);
+            std::cout << "    - " << choice << std::endl;
+        }
+    }
+    gp_widget_free(widget);
+}
+
 int set_config_value(Camera *camera, const char *key, const char *value) {
     CameraWidget *widget = nullptr;
     CameraWidget *child = nullptr;
@@ -255,6 +288,9 @@ void test_shot(Camera *camera) {
     // Use 'gphoto2 --list-config' or 'gphoto2 --get-config iso' to see valid values.
     std::cout << "[Step 2] Applying Settings..." << std::endl;
     
+    // DIAGNOSTIC: Check what 'capturetarget' options exist
+    print_config_options(camera, "capturetarget");
+
     // Force capture to internal RAM to avoid fetching old SD card images
     // 0 = Internal RAM, 1 = Memory Card (usually)
     set_config_value(camera, "capturetarget", "Internal RAM");
