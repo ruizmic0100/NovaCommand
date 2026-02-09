@@ -186,7 +186,7 @@ int capture_photo(Camera *camera, CameraFilePath &camera_file_path) {
     ret = gp_camera_capture(camera, GP_CAPTURE_IMAGE, &camera_file_path, context);
     
     if (ret < GP_OK) {
-        std::cerr << "Capture failed." << std::endl;
+        std::cerr << "Capture failed. Error code: " << ret << " (" << gp_result_as_string(ret) << ")" << std::endl;
         return ret;
     }
     
