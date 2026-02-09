@@ -289,11 +289,12 @@ void test_shot(Camera *camera) {
     std::cout << "[Step 2] Applying Settings..." << std::endl;
     
     // DIAGNOSTIC: Check what 'capturetarget' options exist
-    print_config_options(camera, "capturetarget");
+    // print_config_options(camera, "capturetarget");
 
     // Force capture to internal RAM to avoid fetching old SD card images
-    // 0 = Internal RAM, 1 = Memory Card (usually)
-    set_config_value(camera, "capturetarget", "Internal RAM");
+    // Options found: "Memory card", "Internal RAM" (or similar)
+    // Update: User reports "sdram" is the correct option for this camera.
+    set_config_value(camera, "capturetarget", "sdram");
 
     set_config_value(camera, "iso", "100");
     set_config_value(camera, "shutterspeed", "1/50");
