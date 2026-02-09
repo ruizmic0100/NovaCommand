@@ -6,6 +6,7 @@
 #include <chrono>
 #include <thread>
 #include <algorithm>
+#include <cstring>
 #include <gphoto2/gphoto2-camera.h>
 #include <gphoto2/gphoto2.h>
 
@@ -24,8 +25,11 @@ namespace fs = std::filesystem;
  *    - Call gp_camera_init(): connects to USB, finds the first camera, 
  *      and establishes a PTP session (OpenSession).
  * 
- * 2. CONFIGURATION (Not yet implemented deeply, but part of the flow)
- *    - Set exposure settings (ISO, Shutter Speed) via gp_camera_set_config.
+ * 2. CONFIGURATION (set_camera_config)
+ *    - Fetch the configuration tree (gp_camera_get_config).
+ *    - Find specific widgets by name (e.g., "iso", "shutterspeed", "f-number").
+ *    - Set the value of the widget.
+ *    - Apply the changes back to the camera (gp_camera_set_config).
  * 
  * 3. TRIGGER CAPTURE (capture_photo)
  *    - Call gp_camera_capture(..., GP_CAPTURE_IMAGE, ...).
@@ -66,6 +70,61 @@ std::string sanitize_filename(std::string name) {
 }
 
 // ----------------------------------------------------------------------------------
+// CONFIGURATION HELPERS
+// ----------------------------------------------------------------------------------
+
+int _lookup_widget(CameraWidget *widget, const char *key, CameraWidget **child) {
+    int ret = gp_widget_get_child_by_name(widget, key, child);
+    if (ret < GP_OK) {
+        ret = gp_widget_get_child_by_label(widget, key, child);
+    }
+    return ret;
+}
+
+int set_config_value(Camera *camera, const char *key, const char *value) {
+    CameraWidget *widget = nullptr;
+    CameraWidget *child = nullptr;
+    int ret;
+
+    // 1. Get the current configuration tree
+    std::cout << "  Setting config [" << key << "] to [" << value << "]... ";
+    ret = gp_camera_get_config(camera, &widget, context);
+    if (ret < GP_OK) {
+        std::cerr << "Failed to get config." << std::endl;
+        return ret;
+    }
+
+    // 2. Find the specific setting widget
+    ret = _lookup_widget(widget, key, &child);
+    if (ret < GP_OK) {
+        std::cerr << "Setting not found." << std::endl;
+        gp_widget_free(widget);
+        return ret;
+    }
+
+    // 3. Set the value
+    // Note: This only updates the local widget structure, not the camera yet.
+    ret = gp_widget_set_value(child, value);
+    if (ret < GP_OK) {
+        std::cerr << "Invalid value for this setting." << std::endl;
+        gp_widget_free(widget);
+        return ret;
+    }
+
+    // 4. Apply changes back to the camera
+    ret = gp_camera_set_config(camera, widget, context);
+    if (ret < GP_OK) {
+        std::cerr << "Failed to apply config to camera." << std::endl;
+    } else {
+        std::cout << "Done." << std::endl;
+    }
+
+    // 5. Clean up
+    gp_widget_free(widget);
+    return ret;
+}
+
+// ----------------------------------------------------------------------------------
 // CORE FUNCTIONS
 // ----------------------------------------------------------------------------------
 
@@ -87,7 +146,7 @@ int setup_camera(Camera **camera) {
 
 int capture_photo(Camera *camera, CameraFilePath &camera_file_path) {
     int ret;
-    std::cout << "[Step 2] Triggering Capture..." << std::endl;
+    std::cout << "[Step 3] Triggering Capture..." << std::endl;
     
     // GP_CAPTURE_IMAGE tells the camera to take a still photo
     // This function blocks until the capture is done and file is ready
@@ -105,7 +164,7 @@ int capture_photo(Camera *camera, CameraFilePath &camera_file_path) {
 int download_photo(Camera *camera, const CameraFilePath &camera_file_path, const std::string &local_filename) {
     int ret;
     CameraFile *file;
-    std::cout << "[Step 3] Downloading to " << local_filename << "..." << std::endl;
+    std::cout << "[Step 4] Downloading to " << local_filename << "..." << std::endl;
 
     // Create a new file handle
     ret = gp_file_new(&file);
@@ -134,7 +193,7 @@ int download_photo(Camera *camera, const CameraFilePath &camera_file_path, const
 
 int delete_file_on_camera(Camera *camera, const CameraFilePath &camera_file_path) {
     int ret;
-    std::cout << "[Step 4] Deleting file from camera buffer..." << std::endl;
+    std::cout << "[Step 5] Deleting file from camera buffer..." << std::endl;
     
     // Remove the file from the camera's RAM/Storage to keep it clean
     ret = gp_camera_file_delete(camera, camera_file_path.folder, camera_file_path.name, context);
@@ -148,7 +207,7 @@ int delete_file_on_camera(Camera *camera, const CameraFilePath &camera_file_path
 }
 
 void close_camera(Camera *camera) {
-    std::cout << "[Step 5] Closing session..." << std::endl;
+    std::cout << "[Step 6] Closing session..." << std::endl;
     gp_camera_exit(camera, context);
     gp_camera_free(camera);
     gp_context_unref(context);
@@ -190,6 +249,19 @@ void test_shot(Camera *camera) {
     
     CameraFilePath camera_file_path;
     int ret;
+
+    // 0. Configuration (Step 2 in docs)
+    // Note: Values like "100" or "1/50" must be EXACT strings supported by the camera.
+    // Use 'gphoto2 --list-config' or 'gphoto2 --get-config iso' to see valid values.
+    std::cout << "[Step 2] Applying Settings..." << std::endl;
+    
+    // Force capture to internal RAM to avoid fetching old SD card images
+    // 0 = Internal RAM, 1 = Memory Card (usually)
+    set_config_value(camera, "capturetarget", "Internal RAM");
+
+    set_config_value(camera, "iso", "100");
+    set_config_value(camera, "shutterspeed", "1/50");
+    // set_config_value(camera, "f-number", "5.6"); // Uncomment if lens supports aperture control
 
     // 1. Capture
     ret = capture_photo(camera, camera_file_path);
