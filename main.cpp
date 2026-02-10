@@ -226,22 +226,30 @@ int download_photo(Camera *camera, const CameraFilePath &camera_file_path, const
     // Save to disk
     std::cout << "  Saving to disk..." << std::endl;
     ret = gp_file_save(file, local_filename.c_str());
+    
+    // Always free the file handle regardless of save success.
+    // NOTE: gp_file_save does NOT free the file handle.
+    gp_file_free(file); 
+
     if (ret < GP_OK) {
         std::cerr << "Failed to save file to disk (" << ret << ")." << std::endl;
-        gp_file_free(file); // Free the memory buffer
         return ret;
-    } else {
-        std::cout << "  Download successful." << std::endl;
-    }
+    } 
     
-    gp_file_free(file); // Free the memory buffer
-    return ret;
+    std::cout << "  Download successful." << std::endl;
+    return GP_OK;
 }
 
 int delete_file_on_camera(Camera *camera, const CameraFilePath &camera_file_path) {
     int ret;
     std::cout << "[Step 5] Deleting file from camera buffer..." << std::endl;
     
+    // Verify paths are valid
+    if (strlen(camera_file_path.folder) == 0 || strlen(camera_file_path.name) == 0) {
+        std::cerr << "Warning: Invalid file path for deletion." << std::endl;
+        return GP_ERROR;
+    }
+
     // Remove the file from the camera's RAM/Storage to keep it clean
     ret = gp_camera_file_delete(camera, camera_file_path.folder, camera_file_path.name, context);
     if (ret < GP_OK) {
@@ -454,7 +462,12 @@ void run_json_sequence(Camera *camera, const std::string& json_path) {
 
             // Download
             std::string nextFile = get_next_capture_filename("captures/", "seq_shot_");
-            std::string local_filename = "captures/" + nextFile;
+            // Use absolute path just to be safe
+            std::filesystem::path cwd = std::filesystem::current_path();
+            std::filesystem::path full_path = cwd / "captures" / nextFile;
+            std::string local_filename = full_path.string();
+            
+            std::cout << "[Sequence] Saving to: " << local_filename << std::endl;
             
             // Try download
             if (download_photo(camera, camera_file_path, local_filename) == GP_OK) {
