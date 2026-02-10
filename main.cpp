@@ -402,6 +402,12 @@ void run_json_sequence(Camera *camera, const std::string& json_path) {
         return;
     }
 
+    // Ensure 'captures' folder exists
+    if (!fs::exists("captures")) {
+        fs::create_directory("captures");
+        std::cout << "[Sequence] Created 'captures' directory." << std::endl;
+    }
+
     auto process_shot_config = [&](const json& config) {
         // 1. Apply Settings
         std::cout << "[Sequence] Applying settings..." << std::endl;
