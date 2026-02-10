@@ -216,7 +216,13 @@ int capture_photo(Camera *camera, CameraFilePath &camera_file_path) {
         return GP_ERROR;
     }
 
-    std::cout << "  Camera saved image to: " << camera_file_path.folder << "/" << camera_file_path.name << std::endl;
+    std::cout << "  Camera saved image to: [" << camera_file_path.folder << "] / [" << camera_file_path.name << "]" << std::endl;
+
+    // FIX: Some cameras return "//" or "/" as folder. Clean it up for display/logic if needed,
+    // but usually we just pass it back to the library.
+    // However, the double slash //capt0000.jpg output suggests folder might be "/" and we are printing "/" + "/" + name?
+    // Or folder is empty string?
+    
     return GP_OK;
 }
 
@@ -259,7 +265,7 @@ int download_photo(Camera *camera, const CameraFilePath &camera_file_path, const
 
 int delete_file_on_camera(Camera *camera, const CameraFilePath &camera_file_path) {
     int ret;
-    std::cout << "[Step 5] Deleting file from camera buffer..." << std::endl;
+    std::cout << "[Step 5] Deleting file from camera buffer: [" << camera_file_path.folder << "] / [" << camera_file_path.name << "]" << std::endl;
     
     // Verify paths are valid
     if (strlen(camera_file_path.folder) == 0 || strlen(camera_file_path.name) == 0) {
@@ -267,8 +273,15 @@ int delete_file_on_camera(Camera *camera, const CameraFilePath &camera_file_path
         return GP_ERROR;
     }
 
+    // Try deleting without folder path if it seems empty or root
+    // Some cameras are weird about the folder argument for delete.
+    const char* folder_to_use = camera_file_path.folder;
+    if (strcmp(folder_to_use, "/") == 0 || strcmp(folder_to_use, "\\") == 0) {
+        folder_to_use = "/"; // normalize to root
+    }
+
     // Remove the file from the camera's RAM/Storage to keep it clean
-    ret = gp_camera_file_delete(camera, camera_file_path.folder, camera_file_path.name, context);
+    ret = gp_camera_file_delete(camera, folder_to_use, camera_file_path.name, context);
     if (ret < GP_OK) {
         // Log error properly, but don't crash
         std::cerr << "Failed to delete file on camera. Error: " << ret << " (" << gp_result_as_string(ret) << ")" << std::endl;
