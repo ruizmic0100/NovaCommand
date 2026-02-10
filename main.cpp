@@ -281,7 +281,15 @@ int delete_file_on_camera(Camera *camera, const CameraFilePath &camera_file_path
     }
 
     // Remove the file from the camera's RAM/Storage to keep it clean
+    std::cout << "  Calling gp_camera_file_delete(" << folder_to_use << ", " << camera_file_path.name << ")..." << std::endl;
+    
+    // IMPORTANT: Some Sony/Canon drivers have issues if you delete immediately after download without a small wait or context check.
+    // Also, if 'camera' pointer is somehow corrupted (unlikely if passed by pointer), that would cause a segfault.
+    
     ret = gp_camera_file_delete(camera, folder_to_use, camera_file_path.name, context);
+    
+    std::cout << "  gp_camera_file_delete returned: " << ret << std::endl;
+
     if (ret < GP_OK) {
         // Log error properly, but don't crash
         std::cerr << "Failed to delete file on camera. Error: " << ret << " (" << gp_result_as_string(ret) << ")" << std::endl;
@@ -502,10 +510,17 @@ void run_json_sequence(Camera *camera, const std::string& json_path) {
             
             // Try download
             if (download_photo(camera, camera_file_path, local_filename) == GP_OK) {
-                // If download succeeded, delete from camera
+                // If download succeeded, wait a tiny bit before deleting
+                // Some cameras don't like rapid fire commands
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                
                 delete_file_on_camera(camera, camera_file_path);
             } else {
                  std::cerr << "Failed to download shot " << (i+1) << ". Leaving file on camera." << std::endl;
+                 
+                 // If download failed, maybe try to delete anyway? 
+                 // But wait first.
+                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
                  delete_file_on_camera(camera, camera_file_path);
             }
             
