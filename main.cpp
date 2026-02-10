@@ -1,4 +1,7 @@
+#include <algorithm>
 #include <iostream>
+#include <iomanip>
+#include <sstream>
 #include <fstream>
 #include <filesystem>
 #include <string>
@@ -276,6 +279,36 @@ void save_device_summary(Camera *camera) {
     }
 }
 
+std::string get_next_capture_filename(std::string directory, std::string prefix) {
+	int maxIndex = -1;
+
+	if (fs::exists(directory) && fs::is_directory(directory)) {
+		for (const auto& entry : fs::directory_iterator(directory)) {
+			std::string filename = entry.path().stem().string(); // Get name without extension
+			
+			if (filename.find(prefix) == 0) {
+				std::string numPart = filename.substr(filename.length() - 4);
+
+				try {
+					int currentId = std::stoi(numPart);
+					if (currentId > maxIndex) {
+						maxIndex = currentId;
+					}
+				} catch (...) {
+					// Ignore files that don't end in valid numbers
+				}
+			}
+		}
+	}
+
+	int nextId = maxIndex + 1;
+
+	std::ostringstream oss;
+
+	oss << prefix << std::setw(4) << std::setfill('0') << nextId << ".jpg";
+	return oss.str();	
+}
+
 // The requested "test_shot" function
 void test_shot(Camera *camera) {
     std::cout << "\n--- STARTING TEST SHOT ROUTINE ---\n" << std::endl;
@@ -295,10 +328,9 @@ void test_shot(Camera *camera) {
     // Options found: "Memory card", "Internal RAM" (or similar)
     // Update: User reports "sdram" is the correct option for this camera.
     set_config_value(camera, "capturetarget", "sdram");
-
-    set_config_value(camera, "iso", "100");
-    set_config_value(camera, "shutterspeed", "1/50");
-    // set_config_value(camera, "f-number", "5.6"); // Uncomment if lens supports aperture control
+    set_config_value(camera, "iso", "10000");
+    set_config_value(camera, "shutterspeed", "1");
+    set_config_value(camera, "f-number", "3.5"); // Uncomment if lens supports aperture control
 
     // 1. Capture
     ret = capture_photo(camera, camera_file_path);
@@ -310,8 +342,11 @@ void test_shot(Camera *camera) {
     // 2. Download
     // Ensure 'captures' folder exists
     if (!fs::exists("captures")) fs::create_directory("captures");
+
+    std::string nextFile = get_next_capture_filename("captures/", "test_shot_capt");
+
     
-    std::string local_filename = "captures/test_shot_" + std::string(camera_file_path.name);
+    std::string local_filename = "captures/" + nextFile;
     ret = download_photo(camera, camera_file_path, local_filename);
     if (ret < GP_OK) {
         std::cerr << "Test shot failed at download stage." << std::endl;
