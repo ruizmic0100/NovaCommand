@@ -8,6 +8,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GPHOTO2 REQUIRED libgphoto2)
 
 include_directories(${GPHOTO2_INCLUDE_DIRS})
+include_directories(${CMAKE_SOURCE_DIR})
 link_directories(${GPHOTO2_LIBRARY_DIRS})
 
 add_executable(nova_command main.cpp)

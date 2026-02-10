@@ -12,6 +12,9 @@
 #include <cstring>
 #include <gphoto2/gphoto2-camera.h>
 #include <gphoto2/gphoto2.h>
+#include "json.hpp"
+
+using json = nlohmann::json;
 
 namespace fs = std::filesystem;
 
@@ -364,6 +367,100 @@ void test_shot(Camera *camera) {
     std::cout << "\n--- TEST SHOT COMPLETE ---\n" << std::endl;
 }
 
+
+// ----------------------------------------------------------------------------------
+// JSON SEQUENCE EXECUTION
+// ----------------------------------------------------------------------------------
+
+void run_json_sequence(Camera *camera, const std::string& json_path) {
+    std::cout << "\n--- STARTING JSON SEQUENCE ---\n" << std::endl;
+    
+    std::ifstream f(json_path);
+    if (!f.is_open()) {
+        std::cerr << "Could not open JSON file: " << json_path << std::endl;
+        return;
+    }
+
+    json data;
+    try {
+        f >> data;
+    } catch (const json::parse_error& e) {
+        std::cerr << "JSON Parse Error: " << e.what() << std::endl;
+        return;
+    }
+
+    if (!data.contains("shots")) {
+        std::cerr << "JSON must contain a 'shots' key." << std::endl;
+        return;
+    }
+
+    auto process_shot_config = [&](const json& config) {
+        // 1. Apply Settings
+        std::cout << "[Sequence] Applying settings..." << std::endl;
+        
+        if (config.contains("ISO")) {
+            std::string val;
+            if (config["ISO"].is_number()) val = std::to_string(config["ISO"].get<int>());
+            else val = config["ISO"].get<std::string>();
+            set_config_value(camera, "iso", val.c_str());
+        }
+        if (config.contains("Shutter speed")) {
+            std::string val;
+            if (config["Shutter speed"].is_number()) val = std::to_string(config["Shutter speed"].get<int>());
+            else val = config["Shutter speed"].get<std::string>();
+            set_config_value(camera, "shutterspeed", val.c_str());
+        }
+        if (config.contains("F-Number")) {
+            std::string val;
+            if (config["F-Number"].is_number()) val = std::to_string(config["F-Number"].get<double>());
+            else val = config["F-Number"].get<std::string>();
+            set_config_value(camera, "f-number", val.c_str());
+        }
+
+        // 2. Determine Count
+        int count = 1;
+        if (config.contains("count")) {
+            count = config["count"].get<int>();
+        }
+
+        // 3. Take Shots
+        std::cout << "[Sequence] Taking " << count << " shots..." << std::endl;
+        for (int i = 0; i < count; i++) {
+            CameraFilePath camera_file_path;
+            
+            // Capture
+            int ret = capture_photo(camera, camera_file_path);
+            if (ret < GP_OK) {
+                std::cerr << "Failed to capture shot " << (i+1) << "/" << count << std::endl;
+                continue; 
+            }
+
+            // Download
+            std::string nextFile = get_next_capture_filename("captures/", "seq_shot_");
+            std::string local_filename = "captures/" + nextFile;
+            
+            if (download_photo(camera, camera_file_path, local_filename) == GP_OK) {
+                delete_file_on_camera(camera, camera_file_path);
+            } else {
+                // If download fails, try to delete from camera anyway to avoid full card
+                delete_file_on_camera(camera, camera_file_path);
+            }
+        }
+    };
+
+    if (data["shots"].is_array()) {
+        for (const auto& shot : data["shots"]) {
+            process_shot_config(shot);
+        }
+    } else if (data["shots"].is_object()) {
+        process_shot_config(data["shots"]);
+    } else {
+        std::cerr << "'shots' must be an object or an array." << std::endl;
+    }
+    
+    std::cout << "\n--- JSON SEQUENCE COMPLETE ---\n" << std::endl;
+}
+
 int main() {
     Camera *camera;
     int ret;
@@ -377,8 +474,14 @@ int main() {
     // 2. Info
     save_device_summary(camera);
 
-    // 3. Test Shot
-    test_shot(camera);
+    // 3. Run Sequence (if file exists) or fallback to Test Shot
+    if (fs::exists("sequence.json")) {
+        run_json_sequence(camera, "sequence.json");
+    } else {
+        // Legacy/Fallback
+        std::cout << "No sequence.json found. Running test shot..." << std::endl;
+        test_shot(camera);
+    }
 
     // 4. Teardown
     close_camera(camera);

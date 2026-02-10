@@ -1,0 +1,18 @@
+{
+  "shots": [
+    {
+      "serial_number": "0000003231241",
+      "count": 5,
+      "ISO": "100",
+      "Shutter speed": "1/50",
+      "F-Number": "4.0"
+    },
+    {
+      "serial_number": "0000003231241",
+      "count": 3,
+      "ISO": "400",
+      "Shutter speed": "1/100",
+      "F-Number": "5.6"
+    }
+  ]
+}
