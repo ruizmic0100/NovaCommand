@@ -66,8 +66,18 @@ namespace fs = std::filesystem;
         return func; \
     }
 
-// Global Context (for simplicity in this stage)
+// Global Context
 GPContext *context;
+
+// Callback for error reporting
+static void error_callback(GPContext *context, const char *text, void *data) {
+    std::cerr << "[GPhoto Error] " << text << std::endl;
+}
+
+// Callback for messages
+static void message_callback(GPContext *context, const char *text, void *data) {
+    // std::cout << "[GPhoto Message] " << text << std::endl;
+}
 
 std::string sanitize_filename(std::string name) {
     std::replace(name.begin(), name.end(), ' ', '_');
@@ -170,6 +180,10 @@ int set_config_value(Camera *camera, const char *key, const char *value) {
 int setup_camera(Camera **camera) {
     int ret;
     context = gp_context_new();
+    
+    // Set callbacks
+    gp_context_set_error_func(context, error_callback, NULL);
+    gp_context_set_message_func(context, message_callback, NULL);
 
     ret = gp_camera_new(camera);
     if (ret < GP_OK) return ret;
@@ -230,7 +244,10 @@ int download_photo(Camera *camera, const CameraFilePath &camera_file_path, const
     // Always free the file handle regardless of save success.
     // NOTE: gp_file_save does NOT free the file handle.
     gp_file_free(file); 
-
+    
+    // Force a small flush/sync to ensure OS writes are done?
+    // Not strictly necessary for segfault prevention but good for debug.
+    
     if (ret < GP_OK) {
         std::cerr << "Failed to save file to disk (" << ret << ")." << std::endl;
         return ret;
@@ -253,7 +270,8 @@ int delete_file_on_camera(Camera *camera, const CameraFilePath &camera_file_path
     // Remove the file from the camera's RAM/Storage to keep it clean
     ret = gp_camera_file_delete(camera, camera_file_path.folder, camera_file_path.name, context);
     if (ret < GP_OK) {
-        std::cerr << "Failed to delete file on camera." << std::endl;
+        // Log error properly, but don't crash
+        std::cerr << "Failed to delete file on camera. Error: " << ret << " (" << gp_result_as_string(ret) << ")" << std::endl;
         return ret;
     }
     
