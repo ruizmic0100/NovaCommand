@@ -210,6 +210,8 @@ int capture_photo(Camera *camera, CameraFilePath &camera_file_path) {
         return ret;
     }
     
+    std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Small delay after capture
+
     // IMPORTANT: Verify the path is valid before using it
     if (strlen(camera_file_path.folder) == 0 || strlen(camera_file_path.name) == 0) {
         std::cerr << "Warning: Camera returned empty file path!" << std::endl;
@@ -220,8 +222,6 @@ int capture_photo(Camera *camera, CameraFilePath &camera_file_path) {
 
     // FIX: Some cameras return "//" or "/" as folder. Clean it up for display/logic if needed,
     // but usually we just pass it back to the library.
-    // However, the double slash //capt0000.jpg output suggests folder might be "/" and we are printing "/" + "/" + name?
-    // Or folder is empty string?
     
     return GP_OK;
 }
@@ -242,6 +242,8 @@ int download_photo(Camera *camera, const CameraFilePath &camera_file_path, const
         gp_file_free(file);
         return ret;
     }
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Small delay after download from camera
 
     // Save to disk
     std::cout << "  Saving to disk..." << std::endl;
@@ -253,6 +255,7 @@ int download_photo(Camera *camera, const CameraFilePath &camera_file_path, const
     
     // Force a small flush/sync to ensure OS writes are done?
     // Not strictly necessary for segfault prevention but good for debug.
+    std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Small delay after freeing file
     
     if (ret < GP_OK) {
         std::cerr << "Failed to save file to disk (" << ret << ")." << std::endl;
@@ -272,6 +275,8 @@ int delete_file_on_camera(Camera *camera, const CameraFilePath &camera_file_path
         std::cerr << "Warning: Invalid file path for deletion." << std::endl;
         return GP_ERROR;
     }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Small delay before delete
 
     // Try deleting without folder path if it seems empty or root
     // Some cameras are weird about the folder argument for delete.
