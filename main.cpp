@@ -196,6 +196,12 @@ int capture_photo(Camera *camera, CameraFilePath &camera_file_path) {
         return ret;
     }
     
+    // IMPORTANT: Verify the path is valid before using it
+    if (strlen(camera_file_path.folder) == 0 || strlen(camera_file_path.name) == 0) {
+        std::cerr << "Warning: Camera returned empty file path!" << std::endl;
+        return GP_ERROR;
+    }
+
     std::cout << "  Camera saved image to: " << camera_file_path.folder << "/" << camera_file_path.name << std::endl;
     return GP_OK;
 }
@@ -218,16 +224,17 @@ int download_photo(Camera *camera, const CameraFilePath &camera_file_path, const
     }
 
     // Save to disk
+    std::cout << "  Saving to disk..." << std::endl;
     ret = gp_file_save(file, local_filename.c_str());
-    gp_file_free(file); // Free the memory buffer
-    
     if (ret < GP_OK) {
-        std::cerr << "Failed to save file to disk." << std::endl;
-        return ret;
+        std::cerr << "Failed to save file to disk (" << ret << ")." << std::endl;
+        // Do not return here yet, we need to free the file!
+    } else {
+        std::cout << "  Download successful." << std::endl;
     }
     
-    std::cout << "  Download successful." << std::endl;
-    return GP_OK;
+    gp_file_free(file); // Free the memory buffer
+    return ret;
 }
 
 int delete_file_on_camera(Camera *camera, const CameraFilePath &camera_file_path) {
@@ -428,6 +435,9 @@ void run_json_sequence(Camera *camera, const std::string& json_path) {
         for (int i = 0; i < count; i++) {
             CameraFilePath camera_file_path;
             
+            // Initialize memory to zero to avoid garbage data
+            memset(&camera_file_path, 0, sizeof(camera_file_path));
+
             // Capture
             int ret = capture_photo(camera, camera_file_path);
             if (ret < GP_OK) {
@@ -439,66 +449,18 @@ void run_json_sequence(Camera *camera, const std::string& json_path) {
             std::string nextFile = get_next_capture_filename("captures/", "seq_shot_");
             std::string local_filename = "captures/" + nextFile;
             
+            // Try download
             if (download_photo(camera, camera_file_path, local_filename) == GP_OK) {
+                // If download succeeded, delete from camera
                 delete_file_on_camera(camera, camera_file_path);
             } else {
-                // If download fails, try to delete from camera anyway to avoid full card
-                delete_file_on_camera(camera, camera_file_path);
+                 std::cerr << "Failed to download shot " << (i+1) << ". Leaving file on camera." << std::endl;
+                 delete_file_on_camera(camera, camera_file_path);
             }
             
-            // Crucial: libgphoto2 reuses internal strings in CameraFilePath sometimes, 
-            // but we don't need to manually free its members if they are just char arrays.
-            // However, looking at gphoto2-camera.h, CameraFilePath is:
-            // struct _CameraFilePath { char name[128]; char folder[1024]; };
-            // So it's stack allocated, no free needed.
-            
-            // BUT: capture_photo might be returning a path that points to something problematic 
-            // if we are reusing context or something else is wrong.
-            // Wait, the error is "free(): invalid pointer".
-            
-            // Let's look at download_photo.
-            // gp_file_new(&file);
-            // gp_camera_file_get(...);
-            // gp_file_save(...);
-            // gp_file_free(file); <--- This looks correct.
-            
-            // Let's look at delete_file_on_camera.
-            // gp_camera_file_delete(...) <--- This is just a command.
-            
-            // What about `capture_photo`?
-            // gp_camera_capture(..., &camera_file_path, context);
-            
-            // The user says "after the 2nd shot".
-            // Maybe it's the `process_shot_config` lambda capturing `camera` by value? 
-            // No, `[&]` captures everything by reference. `Camera *camera` is a pointer.
-            
-            // Is it possible `delete_file_on_camera` is failing and causing issues?
-            
-            // Wait, I suspect `gp_file_free(file)` inside `download_photo` might be double freeing if `gp_camera_file_get` fails?
-            // In `download_photo`:
-            /*
-            ret = gp_camera_file_get(..., file, context);
-            if (ret < GP_OK) {
-                std::cerr << "Failed to download file." << std::endl;
-                gp_file_free(file); // <--- Free 1
-                return ret;
-            }
-            // ...
-            gp_file_save(file, ...);
-            gp_file_free(file); // <--- Free 2 (Normal path)
-            */
-            // That looks fine.
-            
-            // What if `gp_camera_capture` fails?
-            // It just continues.
-            
-            // Is it possible `CameraFilePath` is being messed up?
-            // It's declared inside the loop `CameraFilePath camera_file_path;`.
-            
-            // Let's add more debug prints to isolate exactly WHERE it crashes.
-            // And maybe a small delay between shots.
-            std::cout << "[Sequence] Shot " << (i+1) << "/" << count << " complete. Waiting 1s..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            // Wait to let camera stabilize
+            std::cout << "[Sequence] Shot " << (i+1) << "/" << count << " complete. Waiting 3s..." << std::endl;
+            std::this_thread::sleep_for(std::chrono::milliseconds(3000));
         }
     };
 
