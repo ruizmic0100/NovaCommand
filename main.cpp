@@ -228,7 +228,8 @@ int download_photo(Camera *camera, const CameraFilePath &camera_file_path, const
     ret = gp_file_save(file, local_filename.c_str());
     if (ret < GP_OK) {
         std::cerr << "Failed to save file to disk (" << ret << ")." << std::endl;
-        // Do not return here yet, we need to free the file!
+        gp_file_free(file); // Free the memory buffer
+        return ret;
     } else {
         std::cout << "  Download successful." << std::endl;
     }
