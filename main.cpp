@@ -432,7 +432,7 @@ void test_shot(Camera *camera) {
 // JSON SEQUENCE EXECUTION
 // ----------------------------------------------------------------------------------
 
-void run_json_sequence(Camera *camera, const std::string& json_path) {
+void run_json_sequence(const std::string& json_path) {
     std::cout << "\n--- STARTING JSON SEQUENCE ---\n" << std::endl;
     
     std::ifstream f(json_path);
@@ -461,73 +461,79 @@ void run_json_sequence(Camera *camera, const std::string& json_path) {
     }
 
     auto process_shot_config = [&](const json& config) {
-        // 1. Apply Settings
-        std::cout << "[Sequence] Applying settings..." << std::endl;
-        
-        if (config.contains("ISO")) {
-            std::string val;
-            if (config["ISO"].is_number()) val = std::to_string(config["ISO"].get<int>());
-            else val = config["ISO"].get<std::string>();
-            set_config_value(camera, "iso", val.c_str());
-        }
-        if (config.contains("Shutter speed")) {
-            std::string val;
-            if (config["Shutter speed"].is_number()) val = std::to_string(config["Shutter speed"].get<int>());
-            else val = config["Shutter speed"].get<std::string>();
-            set_config_value(camera, "shutterspeed", val.c_str());
-        }
-        if (config.contains("F-Number")) {
-            std::string val;
-            if (config["F-Number"].is_number()) val = std::to_string(config["F-Number"].get<double>());
-            else val = config["F-Number"].get<std::string>();
-            set_config_value(camera, "f-number", val.c_str());
-        }
-
-        // 2. Determine Count
+        // Determine Count
         int count = 1;
         if (config.contains("count")) {
             count = config["count"].get<int>();
         }
 
-        // 3. Take Shots
-        std::cout << "[Sequence] Taking " << count << " shots..." << std::endl;
+        std::cout << "[Sequence] Taking " << count << " shots with new config..." << std::endl;
+        
         for (int i = 0; i < count; i++) {
-            CameraFilePath camera_file_path;
+            // RE-INIT CAMERA FOR EACH SHOT
+            // This is heavy, but safest for stability if session state is corrupted.
+            Camera *camera;
+            if (setup_camera(&camera) < GP_OK) {
+                std::cerr << "Failed to re-initialize camera for shot " << (i+1) << std::endl;
+                // Wait and try again? Or abort?
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                continue;
+            }
+
+            // 1. Apply Settings (Must apply every time since we just opened connection)
+            if (config.contains("ISO")) {
+                std::string val;
+                if (config["ISO"].is_number()) val = std::to_string(config["ISO"].get<int>());
+                else val = config["ISO"].get<std::string>();
+                set_config_value(camera, "iso", val.c_str());
+            }
+            if (config.contains("Shutter speed")) {
+                std::string val;
+                if (config["Shutter speed"].is_number()) val = std::to_string(config["Shutter speed"].get<int>());
+                else val = config["Shutter speed"].get<std::string>();
+                set_config_value(camera, "shutterspeed", val.c_str());
+            }
+            if (config.contains("F-Number")) {
+                std::string val;
+                if (config["F-Number"].is_number()) val = std::to_string(config["F-Number"].get<double>());
+                else val = config["F-Number"].get<std::string>();
+                set_config_value(camera, "f-number", val.c_str());
+            }
             
-            // Initialize memory to zero to avoid garbage data
+            // Force SDRAM every time
+            set_config_value(camera, "capturetarget", "sdram");
+
+
+            // 2. Capture
+            CameraFilePath camera_file_path;
             memset(&camera_file_path, 0, sizeof(camera_file_path));
 
-            // Capture
             int ret = capture_photo(camera, camera_file_path);
             if (ret < GP_OK) {
                 std::cerr << "Failed to capture shot " << (i+1) << "/" << count << std::endl;
+                close_camera(camera); // Clean up
                 continue; 
             }
 
-            // Download
+            // 3. Download
             std::string nextFile = get_next_capture_filename("captures/", "seq_shot_");
-            // Use absolute path just to be safe
             std::filesystem::path cwd = std::filesystem::current_path();
             std::filesystem::path full_path = cwd / "captures" / nextFile;
             std::string local_filename = full_path.string();
             
             std::cout << "[Sequence] Saving to: " << local_filename << std::endl;
             
-            // Try download
             if (download_photo(camera, camera_file_path, local_filename) == GP_OK) {
-                // If download succeeded, wait a tiny bit before deleting
-                // Some cameras don't like rapid fire commands
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                
                 delete_file_on_camera(camera, camera_file_path);
             } else {
                  std::cerr << "Failed to download shot " << (i+1) << ". Leaving file on camera." << std::endl;
-                 
-                 // If download failed, maybe try to delete anyway? 
-                 // But wait first.
                  std::this_thread::sleep_for(std::chrono::milliseconds(200));
                  delete_file_on_camera(camera, camera_file_path);
             }
+            
+            // 4. Close Camera Session
+            close_camera(camera);
             
             // Wait to let camera stabilize
             std::cout << "[Sequence] Shot " << (i+1) << "/" << count << " complete. Waiting 3s..." << std::endl;
@@ -549,29 +555,22 @@ void run_json_sequence(Camera *camera, const std::string& json_path) {
 }
 
 int main() {
-    Camera *camera;
-    int ret;
-
+    // Note: camera setup is now handled inside the sequence loop
     std::cout << "NovaCommand: Camera Control System" << std::endl;
 
-    // 1. Setup
-    ret = setup_camera(&camera);
-    if (ret < GP_OK) return 1;
-
-    // 2. Info
-    save_device_summary(camera);
-
-    // 3. Run Sequence (if file exists) or fallback to Test Shot
+    // Run Sequence (if file exists) or fallback to legacy test shot
     if (fs::exists("sequence.json")) {
-        run_json_sequence(camera, "sequence.json");
+        run_json_sequence("sequence.json");
     } else {
-        // Legacy/Fallback
-        std::cout << "No sequence.json found. Running test shot..." << std::endl;
-        test_shot(camera);
+        // Legacy/Fallback (still needs manual setup if used)
+        Camera *camera;
+        if (setup_camera(&camera) == GP_OK) {
+            save_device_summary(camera);
+            std::cout << "No sequence.json found. Running test shot..." << std::endl;
+            test_shot(camera);
+            close_camera(camera);
+        }
     }
-
-    // 4. Teardown
-    close_camera(camera);
 
     return 0;
 }
