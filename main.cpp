@@ -350,7 +350,7 @@ std::string get_next_capture_filename(std::string directory, std::string prefix)
 			std::string filename = entry.path().stem().string(); // Get name without extension
 			
 			if (filename.find(prefix) == 0) {
-				std::string numPart = filename.substr(filename.length() - 4);
+				std::string numPart = filename.substr(prefix.length()); // Use prefix length instead of hardcoded 4
 
 				try {
 					int currentId = std::stoi(numPart);
