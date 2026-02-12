@@ -342,7 +342,7 @@ void save_device_summary(Camera *camera) {
     }
 }
 
-std::string get_next_capture_filename(std::string directory, std::string prefix) {
+std::string get_next_capture_filename(std::string directory, std::string prefix, std::string extension = ".jpg") {
 	int maxIndex = -1;
 
 	if (fs::exists(directory) && fs::is_directory(directory)) {
@@ -368,7 +368,7 @@ std::string get_next_capture_filename(std::string directory, std::string prefix)
 
 	std::ostringstream oss;
 
-	oss << prefix << std::setw(4) << std::setfill('0') << nextId << ".jpg";
+	oss << prefix << std::setw(4) << std::setfill('0') << nextId << extension;
 	return oss.str();	
 }
 
@@ -394,6 +394,9 @@ void test_shot(Camera *camera) {
     set_config_value(camera, "iso", "10000");
     set_config_value(camera, "shutterspeed", "1");
     set_config_value(camera, "f-number", "3.5"); // Uncomment if lens supports aperture control
+    
+    // Set format to RAW
+    set_config_value(camera, "imageformat", "RAW");
 
     // 1. Capture
     ret = capture_photo(camera, camera_file_path);
@@ -406,7 +409,15 @@ void test_shot(Camera *camera) {
     // Ensure 'captures' folder exists
     if (!fs::exists("captures")) fs::create_directory("captures");
 
-    std::string nextFile = get_next_capture_filename("captures/", "test_shot_capt");
+    // Try to detect extension from camera file path
+    std::string extension = ".jpg"; // Default fallback
+    std::string camera_fname = camera_file_path.name;
+    size_t last_dot = camera_fname.find_last_of(".");
+    if (last_dot != std::string::npos) {
+        extension = camera_fname.substr(last_dot);
+    }
+    
+    std::string nextFile = get_next_capture_filename("captures/", "test_shot_capt", extension);
 
     
     std::string local_filename = "captures/" + nextFile;
@@ -503,6 +514,11 @@ void run_json_sequence(const std::string& json_path) {
             // Force SDRAM every time
             set_config_value(camera, "capturetarget", "sdram");
 
+            // Set Image Format to RAW
+            // The value "RAW" is common, but some cameras use "RAW + Large Fine JPEG" or similar.
+            // Adjust this string if your specific camera model requires a different value.
+            set_config_value(camera, "imageformat", "RAW");
+
 
             // 2. Capture
             CameraFilePath camera_file_path;
@@ -516,7 +532,19 @@ void run_json_sequence(const std::string& json_path) {
             }
 
             // 3. Download
-            std::string nextFile = get_next_capture_filename("captures/", "seq_shot_");
+            // Use a unique prefix for the sequence batch, or keep global index? 
+            // "seq_shot_" is good, get_next_capture_filename should handle incrementing.
+            // But let's verify if the logic holds up for rapid fire.
+            
+            // Try to detect extension from camera file path
+            std::string extension = ".jpg"; // Default fallback
+            std::string camera_fname = camera_file_path.name;
+            size_t last_dot = camera_fname.find_last_of(".");
+            if (last_dot != std::string::npos) {
+                extension = camera_fname.substr(last_dot);
+            }
+
+            std::string nextFile = get_next_capture_filename("captures/", "seq_shot_", extension);
             std::filesystem::path cwd = std::filesystem::current_path();
             std::filesystem::path full_path = cwd / "captures" / nextFile;
             std::string local_filename = full_path.string();
@@ -528,6 +556,7 @@ void run_json_sequence(const std::string& json_path) {
                 delete_file_on_camera(camera, camera_file_path);
             } else {
                  std::cerr << "Failed to download shot " << (i+1) << ". Leaving file on camera." << std::endl;
+                 // Even if download fails, we probably want to try delete to clear buffer
                  std::this_thread::sleep_for(std::chrono::milliseconds(200));
                  delete_file_on_camera(camera, camera_file_path);
             }
